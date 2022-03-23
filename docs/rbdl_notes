@@ -1,0 +1,37 @@
+!!! Pls read this to make sure you do transformations correct !!!
+
+
+the function Quaternion::toMatrix()
+DOes not do what you would expect.
+Instead it returns the transpose of the corresponding rotation
+matrix. This took a while to figure out and caused much suffering.
+
+    
+
+RBDL defines a spatial transform from FRAME A to FRAME B as:
+        X = {vec3 r, mat3x3 E}
+
+There is a significant difference between displacement and
+transform, although they are used almost interchangeably.
+    
+X.r is a pure translation that defines the displacement from
+origin of A to origin of B
+
+it is NOT the coordinate transform that expresses a vector v_A
+in coordinate frame A into frame B
+
+it represents the displacement from origin A to origin B
+
+
+X.E works the opposite.
+let R be the rotational displacement that rotates a coordinate
+frame A to frame B.
+
+X.E is the rotational displacement that express a vector v_A
+(defined in frame A) in frame B.
+
+
+See spatial transform cheat sheet.
+Note that this is for the spatial v2 library.
+Which expresses a transform X as a 6x6 and not as a pair (E,r)
+     http://royfeatherstone.org/spatial/v2/xforms.html

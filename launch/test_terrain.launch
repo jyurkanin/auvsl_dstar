@@ -1,0 +1,81 @@
+<launch>
+  <!-- Following is for some reason required in ROS Noetic. My mistake for using noetic :( -->
+  <!--
+  <param name="robot_description" command="$(find xacro)/xacro $(find jackal_description)/urdf/jackal.urdf.xacro"/>
+  
+  <include file="$(find jackal_gazebo)/launch/hrtac_world.launch">
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="false"/>
+    <arg name="headless" value="false"/>
+    <arg name="joystick" value="false"/>
+  </include>
+  -->
+  <rosparam file="$(find auvsl_planner)/config/jackal_gazebo_pid.yaml" command="load"/> 
+
+  <rosparam file="$(find auvsl_planner)/config/params.yaml"/>
+  <rosparam file="$(find auvsl_planner)/config/terrain_map_params.yaml"/>
+  <node name="test_terrain_node" pkg="auvsl_planner" type="test_terrain_node" output="screen" launch-prefix=" " required="true"/>
+
+<!--
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen" launch-prefix="">
+    <param name="base_global_planner" value="auvsl/GlobalPlanner"/>
+    <param name="base_local_planner" value="auvsl/DStarPlanner"/>
+    
+    <rosparam file="$(find auvsl_planner)/config/costmap_common_params.yaml" command="load" ns="global_costmap" /> 
+    <rosparam file="$(find auvsl_planner)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
+    <rosparam file="$(find auvsl_planner)/config/local_costmap_params.yaml" command="load" />
+    <rosparam file="$(find auvsl_planner)/config/global_costmap_params.yaml" command="load" /> 
+    <rosparam file="$(find auvsl_planner)/config/base_local_planner_params.yaml" command="load" />
+  </node>
+  
+      
+  <arg name="max_range" default="0"/>
+  <arg name="p2n" default="true"/>
+  <arg name="pm" default="true"/>
+
+  <group ns="rtabmap">
+    <node name="rtabmap" pkg="rtabmap_ros" type="rtabmap" output="log" args="">
+      <param name="frame_id" type="string" value="base_link"/>          
+      
+      <param name="subscribe_odom" type="bool" value="true"/>
+      <param name="subscribe_odom_info" type="bool" value="false"/>
+      
+      <param name="subscribe_depth" type="bool" value="false"/>
+      <param name="subscribe_rgbd" type="bool" value="false"/>
+      <param name="subscribe_rgb" type="bool" value="false"/>
+      <param name="subscribe_scan" type="bool" value="false"/>
+      <param name="subscribe_scan_cloud" type="bool" value="true"/>  
+      
+      <remap from="scan_cloud"  to="/mid/points"/>
+      <remap from="odom"        to="/odometry/filtered"/>
+      <remap from="grid_map"    to="/map"/>
+    
+      <param name="approx_sync"       value="true"/> 
+      <param name="queue_size" type="int" value="10"/>
+      <param name="Mem/IncrementalMemory" type="string" value="false"/>    
+	  <param name="Mem/InitWMWithAllNodes" type="string" value="true"/>
+      <param name="RGBD/SavedLocalizationIgnored" type="bool" value="true"/>
+      <param name="RGBD/ProximityPathMaxNeighbors" type="string" value="10"/>
+      
+
+      <param name="Grid/3D"                   type="string" value="true"/>
+      <param name="Grid/FromDepth"            type="string" value="false"/>
+      <param name="Reg/Force3DoF"             type="string" value="true"/>
+      <param name="Reg/Strategy"              type="string" value="1"/>
+      
+
+      <param name="Icp/VoxelSize"                 type="string" value="0.05"/>
+      <param name="Icp/CorrespondenceRatio"       type="string" value="0.2"/>
+
+      <param name="Grid/RangeMax"               type="string" value="100"/>
+      <param name="Grid/MaxGroundAngle"         type="string" value="60"/>
+      <param name="Grid/ClusterRadius"          type="string" value=".1"/>
+      <param name="Grid/NoiseFilteringMinNeighbors"    type="string" value="20"/>
+      <param name="Grid/NormalK"                type="string" value="100"/>
+        
+    </node>
+
+  </group>    
+    -->
+      
+</launch>

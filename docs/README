@@ -1,0 +1,105 @@
+Full Vehicle State for RBDL vehicle dynamics simulation:
+0 1 2   3  4  5    6  7  8  9    10   11 12 13   14 15 16   17  18  19  20 
+x,y,z,  qx,qy,qz,  q1,q2,q3,q4,  qw,  vx,vy,vz,  ax,ay,az,  qd1,qd2,qd3,qd4
+
+Full Vehicle State for Planning:
+0 1 2   3  4  5  6   7  8  9  10 11 12  13  14  15  16
+x,y,z,  qx,qy,qz,qw, vx,vy,vz,wx,wy,wz, qd1,qd2,qd3,qd4
+
+
+
+
+Tutorials I used:
+http://wiki.ros.org/navigation/Tutorials/Writing%20A%20Global%20Path%20Planner%20As%20Plugin%20in%20ROS
+http://wiki.ros.org/navigation/Tutorials/RobotSetup
+http://wiki.ros.org/navigation/Tutorials/Using%20rviz%20with%20the%20Navigation%20Stack
+
+http://wiki.ros.org/ROS/Tutorials/WritingServiceClient%28c%2B%2B%29
+http://wiki.ros.org/rtabmap_ros/Tutorials/SetupOnYourRobot#Kinect_.2B-_2D_laser
+https://pointclouds.org/documentation/tutorials/resampling.html#moving-least-squares
+https://pcl.readthedocs.io/projects/tutorials/en/latest/statistical_outlier.html
+
+Docs I used:
+http://wiki.ros.org/costmap_2d
+http://wiki.ros.org/move_base
+http://wiki.ros.org/rtabmap_ros
+
+
+Source Files:
+1. auvsl_planner_node.cpp
+  This contains the actual node that performs local and global path planning.
+  It contains instances of the a global and local path planner.
+  This is where all the ROS interactions take place.
+
+2. DirectedVehicleControlSampler.cpp
+  This class is for OMPL. It implements the DirectedControlSampler base class
+  and it is used within the RRT algorithm to sample controls and build the
+  search tree.
+
+3. GlobalParams.cpp
+  Contains the GlobalParams class. This has all static members and it just
+  reads from the config/params.yaml file all the configuration parameters set
+  in there. The class just allows a global way to access these without calling
+  the ROS functions everytime.
+
+4. JackalDynamicSolver.cpp
+  This contains the vehicle forward dynamics code (solved with RBDL).
+  It also contains some a newton-euler integration scheme for simulation.
+  The Bekker Terrain-Tire model is also in this file in the form of a neural net.
+
+5. JackalStatePropagator.cpp
+  This class is really just a wrapper around the JackalDynamicSolver that makes
+  the solver compatible with the OMPL library. This class also has the
+  get_waypoints function which is useful for obtaining the waypoints of a
+  computed path plan.
+
+6. LocalPlanner.cpp
+  This is going to contain an abtract base class LocalPlanner thats all.
+
+7. PlannerVisualizer.cpp
+  This was a utility that works with the global planner to visualize the
+  search tree. Its very simple and uses X11 drawing routines for graphics.
+
+8. GlobalPlanner.cpp
+  This contains the RRT global planner.
+  Constructor takes a TerrainMap and calling plan will search for a path between
+  the start and end points.
+
+9. TerrainMap.cpp
+  Abstract base class containing terrain map.
+  Also a simple terrainMap using rectangular obstacles. THis is a place holder
+  for a more advanced terrain map.
+
+10. test_planner_node.cpp
+  Just a file for messing around and creating any kind of tests that I can think
+  of for the global planner
+
+11. test_steerability_node.cpp
+  This runs a test for the heuristic that I implemented in the RRT planner.
+
+12. utils.cpp
+  Whatever utility functions I think I'll need across multiple files.
+
+13. VehicleControlSampler.cpp
+  I ended up not really using this file. All it does is sample a random control.
+  It works within the RRT algorithm but it is not really used. DirectedVehicleControlSampler
+  is used instead.
+
+14. VehicleRRT.cpp
+  This is mainly a copy and paste from the OMPL RRT implementation.
+  I added a few tweaks/heuristics to make it work a bit better for vehicles.
+
+15. VehicleStateProjections.cpp
+  This is a complete copy and paste job from OMPL. I don't think I made
+  any changes to this file except for the class name. It was originally
+  RealVectorStateProjections.cpp I think.
+
+16. VehicleStateSpace.cpp
+  This is mostly copy and paste from OMPL RealVectorStateSpace.cpp. I copy
+  and pasted it because I wanted to modify the distance function. I modified
+  the distance function to make it more suitable for vehicles. Basically, all I
+  did was I made distance between vehicle states only depend on x and y distance.
+  There are additional heuristics for distance based on velocity that can be
+  enabled in the config/params.yaml file. However, modification can break the
+  metric space property of the state space which I believe is a necessary condition
+  for some path planners in OMPL (Not RRT though).

@@ -1,0 +1,24 @@
+<launch>
+  <!-- Following is for some reason required in ROS Noetic. My mistake for using noetic :( 
+  <param name="robot_description" command="$(find xacro)/xacro $(find jackal_description)/urdf/jackal.urdf.xacro"/>
+  
+  <include file="$(find jackal_gazebo)/launch/hrtac_world.launch">
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+
+    <arg name="joystick" value="false"/>
+  </include>
+  -->
+  <rosparam file="$(find auvsl_planner)/config/jackal_gazebo_pid.yaml" command="load"/> 
+
+  <rosparam file="$(find auvsl_planner)/config/terrain_map_params.yaml"/>   
+  <rosparam file="$(find auvsl_planner)/config/params.yaml"/>
+  <node name="auvsl_planner" pkg="auvsl_planner" type="auvsl_planner_node" output="screen"/>
+  <!--
+	<node name="auvsl_control" pkg="auvsl_control" type="jackal.py" output="screen"/>
+  -->	
+  
+  <!--
+  <node name="velodyne_hack" pkg="velodyne_hack" type="velodyne_hack_node"/>
+  -->  
+</launch>

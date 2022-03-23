@@ -1,0 +1,31 @@
+1. Tanh, batch_size is 1, 10 epochs
+   Training loss is .1029
+   Validation loss is like .24 something
+   Trajectory is close ish
+
+2. ReLU, batch_size is 1, 10 epochs
+   Training loss is .1016
+   Validation loss is like .22 something
+   Trajectory is close ish, maybe a bit closer than 1.
+
+
+3. Tanh, batch_size is 1, 10 epochs, but with 100 hidden neurons and one hidden layer
+   Training loss is .1016
+   Validation loss is like .22 something
+   Trajectory is worse, too straight. Doesn't turn.
+
+4. Tanh, batch_size is 1, 10 epochs, but with 20 hidden neurons and one hidden layer
+   Training loss is .1014
+   Validation loss is like .22 something
+   Trajectory is same as 1. Actually turns, unlike 3.
+
+
+
+
+
+1. Tanh, batch_size is 10, 1000 epochs, 100 hidden neurons
+   CV3 performance was .16 (bad)
+
+2. Tanh, batch_size is 100, 1000's epochs, 10 hidden neurons
+    CV3 performance was .09 (good)
+3. Evaluting CV3 performance with time step .001 (instead of .05) gives almost the exact same performance.

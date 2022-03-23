@@ -1,0 +1,10 @@
+#
+# This files holds the parameters for the dynamic_model, planner, and octomap
+#
+
+fuzzy_constant_speed: 3 # m/s
+max_angular_vel: 1     # rad/s
+timestep: .001
+debug_level: 2
+planner_resolution: .01
+seed: 8 #useful for debugging and getting deterministic results

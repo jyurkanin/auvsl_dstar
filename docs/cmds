@@ -1,0 +1,2 @@
+convert bagfile to csv:
+    rostopic echo -b file.bag -p /topic > data.csv
