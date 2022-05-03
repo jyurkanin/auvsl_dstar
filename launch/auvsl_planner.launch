@@ -9,16 +9,9 @@
     <arg name="joystick" value="false"/>
   </include>
   -->
-  <rosparam file="$(find auvsl_planner)/config/jackal_gazebo_pid.yaml" command="load"/> 
-
-  <rosparam file="$(find auvsl_planner)/config/terrain_map_params.yaml"/>   
-  <rosparam file="$(find auvsl_planner)/config/params.yaml"/>
-  <node name="auvsl_planner" pkg="auvsl_planner" type="auvsl_planner_node" output="screen"/>
-  <!--
-	<node name="auvsl_control" pkg="auvsl_control" type="jackal.py" output="screen"/>
-  -->	
   
-  <!--
-  <node name="velodyne_hack" pkg="velodyne_hack" type="velodyne_hack_node"/>
-  -->  
+  <rosparam file="$(find auvsl_dstar)/config/jackal_gazebo_pid.yaml" command="load"/> 
+  <rosparam file="$(find auvsl_dstar)/config/params.yaml"/>
+  <node name="auvsl_dstar" pkg="auvsl_dstar" type="auvsl_dstar_node" output="screen"/>
+  
 </launch>

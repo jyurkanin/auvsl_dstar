@@ -1,6 +1,5 @@
 #include "TerrainMap.h"
 #include "ControlSystem.h"
-#include "utils.h"
 
 #include <Eigen/Dense> //the eigen headers dont end in .h
 
@@ -66,7 +65,7 @@ public:
 
     //base_local_planner virtual function overrides
     bool computeVelocityCommands(geometry_msgs::Twist &cmd_vel) override;
-    void initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d::Costmap2DROS *costmap_ros) override;
+    void initialize(std::string name) override;
     bool isGoalReached() override;
     bool setPlan(const std::vector<geometry_msgs::PoseStamped> &plan) override;
 
@@ -74,19 +73,19 @@ public:
     void followBackpointer(StateData*& robot_state);
     
     //D* related Functions
-    int initPlanner(Vector2f start, Vector2f goal);
+    int initPlanner(Eigen::Vector2f start, Eigen::Vector2f goal);
     void runPlanner();
-    int stepPlanner(StateData*& robot_state, Vector2f &robot_pos);
+    int stepPlanner(StateData*& robot_state, Eigen::Vector2f &robot_pos);
     int replan(StateData* robot_state);
 
     void updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
     void getGlobalCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-    void initOccupancyGrid(Vector2f start, Vector2f goal);
+    void initOccupancyGrid(Eigen::Vector2f start, Eigen::Vector2f goal);
     void segmentPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloudPtr, int local);
   
     float getEdgeCost(StateData* X, StateData* Y);    //c(X)
-    float getPathCost(Vector2f X, Vector2f G);    //h(X)
-    float getMinPathCost(Vector2f X, Vector2f G); //Min Path Cost since state was added to open list. This is the "key function"
+    float getPathCost(Eigen::Vector2f X, Eigen::Vector2f G);    //h(X)
+    float getMinPathCost(Eigen::Vector2f X, Eigen::Vector2f G); //Min Path Cost since state was added to open list. This is the "key function"
     void getNeighbors(std::vector<StateData*> &neighbors, StateData* X, int replan);
     void insertState(StateData* X, float path_cost);
     void deleteState(StateData *state);
@@ -106,11 +105,12 @@ public:
     void drawRobotPos(unsigned x, unsigned y);
     
     //Helper functions
-    void getMapIdx(Vector2f X, unsigned &x, unsigned &y);
+    void getMapIdx(Eigen::Vector2f X, unsigned &x, unsigned &y);
     StateData* readStateMap(float rx, float ry); //will perform the necessary quantization to go from floating state to grid index
-    Vector2f getRealPosition(unsigned x, unsigned y);
-    Vector2f getCurrentPose();
-
+    Eigen::Vector2f getRealPosition(unsigned x, unsigned y);
+    Eigen::Vector2f getCurrentPose();
+    int getROSPose(geometry_msgs::PoseStamped &pose);
+  
     //Costmap related functions
     int isStateValid(float x, float y);
     
@@ -134,12 +134,12 @@ private:
 
     //waypoints generated from global planner. Should further spaced than local waypoints
     unsigned curr_waypoint_;
-    std::vector<Vector2f> global_waypoints_;
+    std::vector<Eigen::Vector2f> global_waypoints_;
     
     //These represent the higher resolution immediate next waypoints to reach.
     std::mutex wp_mu_;
     unsigned lookahead_len_;
-    std::vector<Vector2f> local_waypoints_;
+    std::vector<Eigen::Vector2f> local_waypoints_;
     
     std::mutex update_mu_;
     std::vector<StateData> update_nodes_;
@@ -167,7 +167,6 @@ private:
     ros::NodeHandle *private_nh_;
     ros::Subscriber pcl_sub_;
     ros::CallbackQueue pcl_obs_queue_;
-    costmap_2d::Costmap2DROS *costmap_ros_; //This is still useful just for the getRobotPose function
   
     ros::Publisher dstar_visual_pub_;
     tf::TransformListener tf_listener_;
