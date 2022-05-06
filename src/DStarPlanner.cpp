@@ -9,15 +9,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/surface/mls.h>
-#include <pcl_conversions.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl_ros/transforms.h>
-#include <tf/transform_listener.h>
-
-#include <pcl_ros/impl/transforms.hpp> //I do as stack overflow commands.
-
 
 //valgrind --track-origins=yes --log-file=/home/justin/temp/log.txt 
 using namespace auvsl;
@@ -59,7 +50,6 @@ DStarPlanner::~DStarPlanner(){
 
 void DStarPlanner::initialize(std::string name){
     planner_thread_ = new boost::thread(&DStarPlanner::runPlanner, this);
-    
 }
 
 bool DStarPlanner::computeVelocityCommands(geometry_msgs::Twist &cmd_vel){       
@@ -98,7 +88,7 @@ bool DStarPlanner::computeVelocityCommands(geometry_msgs::Twist &cmd_vel){
     
     cmd_vel.linear.x = v_forward;
     cmd_vel.angular.z = v_angular;
-
+    
     ROS_INFO("D* Velocity commands computed: %f %f", v_forward, v_angular);
     return true;
 }
@@ -163,21 +153,6 @@ int DStarPlanner::isStateValid(float x, float y){
 }
 
 
-//TODO: process sampled point cloud
-//1. temp_cloud = sample_cloud + local_terrain_cloud_
-//2. Run region growing segmentation on temp_cloud
-//3. local_terrain_cloud_ = temp_ground_cloud
-//4. temp_obstacle_cloud gets used to update the occupancy grid with nearest neighbors approach
-//This all needs to happen faster than the lidar can publish.
-//Could become problematic if point clouds get massive
-
-//Change of plans. I'm just going to add the pre-segmented point cloud directly into the costmap.
-//THis is going to be the fastest way of doing things.
-//This callback is going to have to be subscribed to /rtabmap/cloud_ground or whatever its called
-
-//Change of plans yet again.
-
-
 void DStarPlanner::updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
     ROS_INFO("D* update edge costs callback");
     ros::WallTime start_time = ros::WallTime::now();
@@ -202,12 +177,6 @@ void DStarPlanner::updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPt
     pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
     
-    pcl::PointCloud<pcl::PointXYZ> sample_map_frame;
-    pcl_ros::transformPointCloud("map", *sample_cloud, sample_map_frame, tf_listener_);
-    
-    *sample_cloud = sample_map_frame + *local_terrain_cloud_;
-    
-    segmentPointCloud(sample_cloud, obstacle_cloudPtr, ground_cloudPtr, 1);
 
     exe_time = ros::WallTime::now() - start_time;
     ROS_INFO("D* updateEdge: Segmenting point cloud %u %u", exe_time.sec, exe_time.nsec);
@@ -233,20 +202,6 @@ void DStarPlanner::updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPt
         obstacle_cloudPtr->points[i].z = 0;
     }
     
-    //one alternative would be to cluster obstacle point cloud and then compute radius and then do sparse update of point cloud.
-
-    /*
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr obs_tree(new pcl::search::KdTree<pcl::PointXYZ>);
-    obs_tree->setInputCloud(obstacle_cloudPtr);
-    obs_tree->setSortedResults(true);
-    
-    //num nearest neighbors
-    std::vector<int> pointIdxKNNSearch(max_neighbors);
-    std::vector<float> pointKNNSquaredDistance(max_neighbors);
-    
-    pcl::PointXYZ searchPoint;
-    */
-
     private_nh_->getParam("/LocalMap/occupancy_threshold", occupancy_threshold_);
     
     unsigned max_neighbors = 16;
@@ -324,41 +279,6 @@ void DStarPlanner::updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPt
       }
     }
     
-    
-    
-    /*
-    for(unsigned y = 0; y < height_; y++){
-        offset = y*width_;
-        for(unsigned x = 0; x < width_; x++){
-            sum = 0;
-            
-            searchPoint.x = (x*map_res_) + x_offset_;
-            searchPoint.y = (y*map_res_) + y_offset_;
-            searchPoint.z = 0;
-            
-            num_neighbors = obs_tree->nearestKSearch(searchPoint, max_neighbors, pointIdxKNNSearch, pointKNNSquaredDistance);
-            for(unsigned i = 0; i < num_neighbors; i++){
-              if(sqrtf(pointKNNSquaredDistance[i]) < (map_res_)){
-                    sum++;
-                }
-            }
-            
-            temp_occ = sum / (float)max_neighbors;
-            if(fabs(temp_occ - state_map_[offset+x].occupancy) > .01){
-              temp_state_data.x = x;
-              temp_state_data.y = y;
-              temp_state_data.occupancy = temp_occ;             //if(sum > occupancy_threshold_){
-              update_nodes.push_back(temp_state_data);
-            }
-            if(state_map_[offset+x].occupancy >= occupancy_threshold_){
-              drawObstacle(&state_map_[offset+x], 0);
-            }
-            else{
-              drawObstacle(&state_map_[offset+x], 1);
-            }
-        }
-    }
-    */
     ROS_INFO("D* updateEdge: Done with detecting new states to update. Entering critical section now");
     
     
@@ -378,120 +298,6 @@ void DStarPlanner::updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPt
 }
 
 
-//Done: process aggregate point cloud
-//This function has one job. Segment the full aggregated point cloud into ground and terrain
-//Having these will help segment the for the local grid.
-//Computes the global_terrain_cloud_ and global_obstacle_cloud_
-void DStarPlanner::getGlobalCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
-    ROS_INFO("D* get global cloud callback");
-    pcl::PointCloud<pcl::PointXYZ> full_cloud;
-    pcl::fromROSMsg(*msg, full_cloud);
-    
-    ROS_INFO("D* global cloud frame %s", msg->header.frame_id.c_str());
-    
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
-    *cloudPtr = full_cloud;
-    
-    //pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
-
-    segmentPointCloud(cloudPtr, global_obstacle_cloud_, ground_cloudPtr, 0);
-    
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr mls_tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointXYZ> mls;
-
-    float radius;
-    private_nh_->getParam("/TerrainMap/filter_radius", radius);
-        
-    mls.setInputCloud(ground_cloudPtr);
-    mls.setPolynomialOrder(2);
-    mls.setSearchMethod(mls_tree);
-    mls.setSearchRadius(radius);
-    mls.setComputeNormals(false);
-    
-    //ROS_INFO("D* about to smooth the point cloud");
-    mls.process(*global_terrain_cloud_);
-    ROS_INFO("D* point cloud smoothed");
-
-    pcl::PointCloud<pcl::PointXYZ> temp_cloud;
-    pcl::VoxelGrid<pcl::PointXYZ> sor;
-    sor.setLeafSize(0.1f, 0.1f, 0.1f);
-    
-    sor.setInputCloud(global_terrain_cloud_);
-    sor.filter(temp_cloud);
-    *global_terrain_cloud_ = temp_cloud;
-    
-    has_init_map_ = 1;
-}
-
-void DStarPlanner::segmentPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloudPtr, int local){
-    float normal_radius;
-    float smoothness_threshold;
-    float curvature_threshold;
-    int num_neighbors;
-    
-    private_nh_->getParam("/TerrainMap/normal_radius", normal_radius);
-    private_nh_->getParam("/TerrainMap/num_neighbors", num_neighbors);
-
-    if(local){
-      private_nh_->getParam("/LocalMap/curvature_threshold", curvature_threshold);
-      private_nh_->getParam("/LocalMap/smoothness_threshold", smoothness_threshold);
-    }
-    else{
-      private_nh_->getParam("/TerrainMap/curvature_threshold", curvature_threshold);
-      private_nh_->getParam("/TerrainMap/smoothness_threshold", smoothness_threshold);
-    }
-    
-    //ROS_INFO("D* Starting normal estimation");
-    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
-    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
-    normal_estimator.setSearchMethod (tree);
-    normal_estimator.setInputCloud (cloudPtr);
-    normal_estimator.setRadiusSearch (normal_radius);
-    normal_estimator.compute (*normals);
-
-    //ROS_INFO("D* Done estimating normals, onto region growing");
-    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
-    reg.setMinClusterSize (50);
-    reg.setMaxClusterSize (1000000000);
-    reg.setSearchMethod (tree);
-    reg.setNumberOfNeighbours (num_neighbors);
-    reg.setInputCloud (cloudPtr);
-    reg.setInputNormals (normals);
-    reg.setSmoothnessThreshold (smoothness_threshold);
-    reg.setCurvatureThreshold (curvature_threshold);
-    
-    std::vector<pcl::PointIndices> clusters;
-    reg.extract(clusters);
-    ROS_INFO("D* Num clusters %lu", clusters.size());
-    
-    
-    unsigned biggest_cluster = 0;
-    unsigned most_points = clusters[0].indices.size();
-    unsigned temp_num_points;
-    for(unsigned i = 1; i < clusters.size(); i++){
-        temp_num_points = clusters[i].indices.size();
-        if(temp_num_points > most_points){
-            most_points = temp_num_points;
-            biggest_cluster = i;
-        }
-    }
-    
-    ROS_INFO("D* Biggest cluster is size %lu", clusters[biggest_cluster].indices.size());
-    
-    pcl::PointIndices::Ptr ground_indices(new pcl::PointIndices());
-    *ground_indices = clusters[biggest_cluster];
-    pcl::ExtractIndices<pcl::PointXYZ> extract_ground;
-    extract_ground.setInputCloud(cloudPtr);
-    extract_ground.setIndices(ground_indices);
-    extract_ground.setNegative(false);
-    extract_ground.filter(*ground_cloudPtr);
-    extract_ground.setNegative(true);
-    extract_ground.filter(*obstacle_cloudPtr);
-    
-    //*cloudPtr = *ground_cloudPtr;
-}
 
 //May need to check how getRobotPose works. It could block while it waits to hear from odom.
 //Which would really slow things down.
@@ -714,9 +520,6 @@ void DStarPlanner::runPlanner(){
     //ros::SubscribeOptions ops = ros::SubscribeOptions::create<std_msgs::String>("/rtabmap/cloud_obstacles", 1000, DStarPlanner::updateEdgeCostsCallback, std::make_shared<auvsl::DStarPlanner>(this), &pcl_obs_queue_);
     
     pcl_sub_ = private_nh_->subscribe<sensor_msgs::PointCloud2>("/mid/points", 1, &DStarPlanner::updateEdgeCostsCallback, this);
-    cloud_pub1_ = private_nh_->advertise<sensor_msgs::PointCloud2>("local_cloud", 1000);
-    cloud_pub2_ = private_nh_->advertise<sensor_msgs::PointCloud2>("ground_cloud", 1000);
-    cloud_pub3_ = private_nh_->advertise<sensor_msgs::PointCloud2>("obstacle_cloud", 1000);
     initialized_ = 1;
     //ROS_INFO("init over");
     

@@ -19,7 +19,8 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import Int8
 from std_msgs.msg import Float32
 from std_msgs.msg import String
-from std_msgs.msg import Int8MultiArray
+from rospy_tutorials.msg import Floats
+#from auvsl_dstar.msg import Ints
 from sensor_msgs.msg import Image # ROS Image message
 from sensor_msgs.msg import Range
 from uuv_sensor_ros_plugins_msgs.msg import ChemicalParticleConcentration #CPC sensor
@@ -79,7 +80,7 @@ obstacle_decision = 0
 linear_velocity_y = 0
 angular_velocity_z = 0
 linear_velocity_x = 0
-obstacle_map = np.zeros([200,200])
+obstacle_map_ = np.zeros([200,200], dtype=np.float32)
 
 
 
@@ -205,11 +206,12 @@ def obstacle_avoidance_sonar_callback(msg):
     global linear_velocity_y
     global angular_velocity_z
     global obstacle_distance_from_vehicle
-    global obstacle_map
-
+    global obstacle_map_
     
-
-    obstacle_map = np.zeros([200,200])
+    
+    rospy.logdebug('HERHEREHEREHEREHEREHEREHEREHEREHEREHEREHEREHEREHEREHEREHREHERHERHRHERHEHREHR')
+    
+    obstacle_map = np.zeros([200,200], dtype=float32)
 
 
 
@@ -244,8 +246,9 @@ def obstacle_avoidance_sonar_callback(msg):
             else:
                 break
         
-
-
+    obstacle_map_ = obstacle_map.flatten()
+    rospy.logdebug('Obstacle Map Shape ' + str(obstacle_map.shape))
+    rospy.logdebug('Obstacle Map Shape ' + str(obstacle_map_.shape))
 
 
 
@@ -862,7 +865,7 @@ def main():
     linear_velocity_x_ros = rospy.Publisher('linear_velocity_x_ros', Float32, queue_size =10)
     linear_velocity_y_ros = rospy.Publisher('linear_velocity_y_ros', Float32, queue_size =10)
     angular_velocity_z_ros = rospy.Publisher('angular_velocity_z_ros', Float32, queue_size =10)
-    obstacle_map_ros = rospy.Publisher('obstacle_map_ros', numpy_msg(Float32), queue_size = 10)
+    obstacle_map_ros = rospy.Publisher('obstacle_map_ros', numpy_msg(Floats), queue_size = 10)
 
     while not rospy.is_shutdown():
         #msg = Twist()
@@ -885,7 +888,8 @@ def main():
         linear_velocity_x_ros.publish(linear_velocity_x)
         linear_velocity_y_ros.publish(linear_velocity_y)
         angular_velocity_z_ros.publish(angular_velocity_z)
-        obstacle_map_ros.publish(obstacle_map)
+        
+        obstacle_map_ros.publish(obstacle_map_)
 
         if leak_outpout is 1:
             print("There's a leak at", leakx, leaky, leakz)

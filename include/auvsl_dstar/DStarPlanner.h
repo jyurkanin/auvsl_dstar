@@ -1,7 +1,7 @@
 #include "TerrainMap.h"
 #include "ControlSystem.h"
 
-#include <Eigen/Dense> //the eigen headers dont end in .h
+#include <Eigen/Dense>
 
 #include <vector>
 #include <mutex>
@@ -21,7 +21,6 @@
 #include <tf/transform_listener.h>
 
 #include <boost/thread/thread.hpp>
-
 #include <rosgraph_msgs/Clock.h>
 
 /*
@@ -81,7 +80,6 @@ public:
     void updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
     void getGlobalCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
     void initOccupancyGrid(Eigen::Vector2f start, Eigen::Vector2f goal);
-    void segmentPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloudPtr, pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloudPtr, int local);
   
     float getEdgeCost(StateData* X, StateData* Y);    //c(X)
     float getPathCost(Eigen::Vector2f X, Eigen::Vector2f G);    //h(X)
@@ -143,13 +141,7 @@ private:
     
     std::mutex update_mu_;
     std::vector<StateData> update_nodes_;
-    
-    pcl::PointCloud<pcl::PointXYZ>::Ptr global_terrain_cloud_;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr global_obstacle_cloud_;
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr local_terrain_cloud_;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr local_obstacle_cloud_;
-    
+        
     std::ofstream log_file;
     ControlSystem *control_system_;
     
@@ -166,14 +158,7 @@ private:
     boost::thread *planner_thread_;
     ros::NodeHandle *private_nh_;
     ros::Subscriber pcl_sub_;
-    ros::CallbackQueue pcl_obs_queue_;
-  
     ros::Publisher dstar_visual_pub_;
-    tf::TransformListener tf_listener_;
-    ros::Publisher cloud_pub1_;
-    ros::Publisher cloud_pub2_;
-    ros::Publisher cloud_pub3_;
-  
 };
 
 

@@ -2,7 +2,8 @@
   <!-- Following is for some reason required in ROS Noetic. My mistake for using noetic :( 
   <param name="robot_description" command="$(find xacro)/xacro $(find jackal_description)/urdf/jackal.urdf.xacro"/>
   
-  <include file="$(find jackal_gazebo)/launch/hrtac_world.launch">
+ 
+ <include file="$(find jackal_gazebo)/launch/hrtac_world.launch">
     <arg name="use_sim_time" value="true"/>
     <arg name="gui" value="true"/>
 
@@ -10,8 +11,13 @@
   </include>
   -->
   
+  <include file="$(find uuv_gazebo_worlds)/launch/tuberexrov.launch"/>
+  <node name="obstacle_map_py" pkg="auvsl_dstar" type="py_image_coordinate-aniketh.py" output="screen"/>
+  
+  <!--
   <rosparam file="$(find auvsl_dstar)/config/jackal_gazebo_pid.yaml" command="load"/> 
   <rosparam file="$(find auvsl_dstar)/config/params.yaml"/>
   <node name="auvsl_dstar" pkg="auvsl_dstar" type="auvsl_dstar_node" output="screen"/>
-  
+  -->
+
 </launch>
