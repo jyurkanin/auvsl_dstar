@@ -7,6 +7,8 @@
 #include <mutex>
 
 // msgs
+#include <std_msgs/Float32MultiArray.h>
+#include <navigation_msgs/Odometry.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <visualization_msgs/Marker.h>
@@ -33,6 +35,7 @@
  * understand.
  */
 
+//careful with this.
 using namespace Eigen;
 
 
@@ -77,9 +80,9 @@ public:
     int stepPlanner(StateData*& robot_state, Eigen::Vector2f &robot_pos);
     int replan(StateData* robot_state);
 
-    void updateEdgeCostsCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-    void getGlobalCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-    void initOccupancyGrid(Eigen::Vector2f start, Eigen::Vector2f goal);
+    void updateEdgeCostsCallback(const std_msgs::Float32MultiArray &new_edges);
+    void odometryCallback(const nav_msgs::Odometry &odom);
+  //void initOccupancyGridCallback(const std_msgs::Float32MultiArray &initial_grid);
   
     float getEdgeCost(StateData* X, StateData* Y);    //c(X)
     float getPathCost(Eigen::Vector2f X, Eigen::Vector2f G);    //h(X)
@@ -107,7 +110,7 @@ public:
     StateData* readStateMap(float rx, float ry); //will perform the necessary quantization to go from floating state to grid index
     Eigen::Vector2f getRealPosition(unsigned x, unsigned y);
     Eigen::Vector2f getCurrentPose();
-    int getROSPose(geometry_msgs::PoseStamped &pose);
+    int getROSPose(nav_msgs::Odometry &odom);
   
     //Costmap related functions
     int isStateValid(float x, float y);
@@ -116,20 +119,19 @@ public:
 private:
     float x_range_;
     float x_offset_;
-
     float y_range_;
     float y_offset_;
-
+    
     float occupancy_threshold_;
     float map_res_;
     
-    unsigned width_;
-    unsigned height_;
-  
+    unsigned cols_;
+    unsigned rows_;
+    
     StateData *state_map_; //states are 8 connected
     //SimpleTerrainMap *terrain_map_;
     std::vector<StateData*> open_list_; //This is going to be sorted by key function.
-
+    
     //waypoints generated from global planner. Should further spaced than local waypoints
     unsigned curr_waypoint_;
     std::vector<Eigen::Vector2f> global_waypoints_;
@@ -145,7 +147,6 @@ private:
     std::ofstream log_file;
     ControlSystem *control_system_;
     
-    volatile int has_pose_;
     float goal_tol_;
 
     volatile int has_init_map_;
@@ -157,8 +158,13 @@ private:
     
     boost::thread *planner_thread_;
     ros::NodeHandle *private_nh_;
-    ros::Subscriber pcl_sub_;
+    ros::Subscriber update_callback_;
+    ros::Subscriber odom_callback_;
     ros::Publisher dstar_visual_pub_;
+    
+    
+    std::mutex odom_mu_;
+    nav_msgs::Odometry latest_odom_;
 };
 
 
