@@ -5,3 +5,7 @@
 DStarPlanner:
     goal_tol: .1
     map_res: .05
+    grid_update_topic: "UUV sonar topic"
+    odometry_topic: "/nav/Odom" #or whatever    
+    grid_rows: 200
+    grid_cols: 200
