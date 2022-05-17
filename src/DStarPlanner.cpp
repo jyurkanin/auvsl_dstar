@@ -147,7 +147,7 @@ int DStarPlanner::isStateValid(float x, float y){
 
 void DStarPlanner::odometryCallback(const nav_msgs::Odometry &odom){
   std::lock_guard<std::mutex> lock(odom_mu_);
-  latests_odom_ = odom;
+  latest_odom_ = odom;
 }
 
 //This is going to be a real stupid inefficient function
@@ -326,7 +326,7 @@ void DStarPlanner::runPlanner(){
     private_nh_->getParam("/DStarPlanner/odometry_topic", odometry_topic);
     odom_callback_ = private_nh_->subscribe<nav_msgs::Odometry>(odometry_topic.c_str(),
                                                                 100,
-                                                                &DStarPlanner::getROSPose,
+                                                                &DStarPlanner::odometryCallback,
                                                                 this);
     
     std::string update_topic;
