@@ -4,8 +4,11 @@
 
 DStarPlanner:
     goal_tol: .1
-    map_res: .05
-    grid_update_topic: "UUV sonar topic"
-    odometry_topic: "/nav/Odom" #or whatever    
+    map_res: 1
+    grid_update_topic: "/obstacle_map_ros"
+    odometry_topic: "/odometry/filtered" #or whatever
+    cmd_vel_topic: "/rexrov/cmd_vel"
     grid_rows: 200
     grid_cols: 200
+    visualizer_frame: odom
+    occ_threshold: .1

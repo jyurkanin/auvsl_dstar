@@ -1,9 +1,8 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <string>
 
-#include "GlobalParams.h"
-#include "PlannerVisualizer.h"
 #include "DStarPlanner.h"
 
 #include <Eigen/Dense>
@@ -12,7 +11,6 @@
 
 using namespace auvsl;
 
-SimpleTerrainMap *terrain_map;
 DStarPlanner *l_planner;
 
 
@@ -48,25 +46,20 @@ int main(int argc, char **argv){
   
   ros::init(argc, argv, "auvsl_global_planner");
   ros::NodeHandle nh;
-  ros::Publisher l_planner_pub = nh.advertise<LocalPathPlan>("local_planner", 1);  //
-
-  GlobalParams::load_params(&nh);
-  ros::Rate loop_rate(10);
   
-  terrain_map = new SimpleTerrainMap();
-  terrain_map->generateObstacles();
-  terrain_map->generateUnknownObstacles();
+  ros::Rate loop_rate(10);
   
   l_planner = new DStarPlanner();
 
   std::vector<geometry_msgs::PoseStamped> plan;
 
   ROS_INFO("Starting Local Planner\n");
+  //start point is 0,0; goal is 10,0
   for(int i = 0; i < 2; i++){
     //ignore the header.
     geometry_msgs::PoseStamped wp;
-    wp.pose.position.x = 40 + (i*10);
-    wp.pose.position.y = 0;
+    wp.pose.position.x = 0;
+    wp.pose.position.y = (i*10);
     wp.pose.position.z = 0;
     
     wp.pose.orientation.x = 0;
@@ -74,22 +67,34 @@ int main(int argc, char **argv){
     wp.pose.orientation.z = 0;
     wp.pose.orientation.w = 1;
     
-    waypoints.push_back(wp);
+    plan.push_back(wp);
   }
     
-  l_planner->setPlan(waypoints);
-  l_planner->runPlanner();
-
+  l_planner->setPlan(plan);
+  
+  std::cout << "Press enter to start (open rviz first)\n";
+  char ignore;
+  std::cin >> ignore;
+  
+  l_planner->initialize();
+  
+  std::string cmd_vel_topic;
+  nh.getParam("/DStarPlanner/cmd_vel_topic", cmd_vel_topic);
+  ros::Publisher vel_pub = nh.advertise<geometry_msgs::Twist>("/rexrov/cmd_vel", 100);  
+  geometry_msgs::Twist cmd_vel;
+  
+  ROS_INFO("d*_node entering controller loop");
+  while(!l_planner->isGoalReached()){
+    l_planner->computeVelocityCommands(cmd_vel);
+    vel_pub.publish(cmd_vel);
+    
+    ros::spinOnce(); //This is actually mega important. Without it, the updateEdgeCostsCallback wont even be called.
+    loop_rate.sleep();
+  }
+  
   ROS_INFO("Local Planner Done");
-
-  //while(ros::ok()){
-  //ros::spinOnce();
-  //loop_rate.sleep();
-  //}
-
-
-  delete terrain_map;
+  
   delete l_planner;
-
+  
   return 0;
 }

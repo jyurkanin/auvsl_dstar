@@ -1,5 +1,5 @@
 #include "ControlSystem.h"
-#include "utils.h"
+//#include "utils.h"
 #include <algorithm>
 
 #include <tf/tf.h>
@@ -53,10 +53,10 @@ int SimpleControlSystem::computeVelocityCommand(std::vector<Vector2f> waypoints,
     ang_disp -= (2*M_PI);
   }
 
-  v_angular = std::max(std::min(ang_disp*3.0f, .5f), -.5f);
-  v_forward = std::max(std::min((dist*8.0f)/(1+(ang_disp*ang_disp)), 4.0f), 0.0f);
-  if(fabs(ang_disp) > .5){
-    v_forward *= .01;
+  v_angular = std::max(std::min(ang_disp*3.0f, .2f), -.2f);
+  v_forward = std::max(std::min((dist*8.0f)/(1+(ang_disp*ang_disp)), 1.0f), 0.0f);
+  if(fabs(ang_disp) > .3){
+    v_forward = 0;;
   }
   
   

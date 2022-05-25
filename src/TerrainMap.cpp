@@ -5,7 +5,6 @@
 #include <stdlib.h>
 
 #include <ros/ros.h>
-#include <ompl/util/RandomNumbers.h>
 
 
 
@@ -71,17 +70,18 @@ void SimpleTerrainMap::generateObstacles(){
   //Not going to error check, i.e. if the starting point is inside an
   //obstacle or whatever. Ill just check and try a different seed.
 
-  ompl::RNG rng;
+  //ompl::RNG rng;
+  
   const int max_obstacles = 8;
 
   for(int i = 0; i < max_obstacles; i++){
     Rectangle *rect = new Rectangle();
 
-    rect->width = rng.uniformReal(5, 10);
-    rect->height = rng.uniformReal(40, 80);
+    rect->width = (5*rand()/RAND_MAX)+5; //rng.uniformReal(5, 10);
+    rect->height = (40*rand()/RAND_MAX)+40; //rng.uniformReal(40, 80);
 
     rect->x = -80 + (160*i/(max_obstacles-1)); //rng.uniformReal(-100, 100);
-    rect->y = rng.uniformReal(-50, 50) - rect->height/2;
+    rect->y = ((100*rand()/RAND_MAX)-50)  - rect->height/2;
 
 
     obstacles.push_back(rect);
@@ -91,24 +91,24 @@ void SimpleTerrainMap::generateObstacles(){
 
 
 void SimpleTerrainMap::generateUnknownObstacles(){
-  ompl::RNG rng;
+  //ompl::RNG rng;
   const int max_obstacles = 1000;
 
   for(int i = 0; i < max_obstacles; i++){
     Rectangle *rect = new Rectangle();
 
-    if(rng.uniformBool()){
-      rect->width = rng.uniformReal(1, 4);
+    if((rand()/RAND_MAX) > .5f){
+      rect->width = (3*rand()/RAND_MAX)+1;
       rect->height = 1;
     }
     else{
       rect->width = 1;
-      rect->height = rng.uniformReal(1, 4);
+      rect->height = (3*rand()/RAND_MAX)+1;
     }
 
 
-    rect->x = rng.uniformReal(-80, 80) - rect->width/2;
-    rect->y = rng.uniformReal(-80, 80) - rect->height/2;
+    rect->x = (160*rand()/RAND_MAX)-80 - rect->width/2;
+    rect->y = (160*rand()/RAND_MAX)-80 - rect->height/2;
 
 
     unknown_obstacles.push_back(rect);

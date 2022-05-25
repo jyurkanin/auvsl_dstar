@@ -14,14 +14,34 @@
 using namespace auvsl;
 
 
+float getDistance(Eigen::Vector2f a, Eigen::Vector2f b){
+  float dx = a[0] - b[0];
+  float dy = a[1] - b[1];
+
+  return sqrtf(dx*dx + dy*dy);
+}
+
+
 DStarPlanner::DStarPlanner(){
     curr_waypoint_ = 0;
     initialized_ = 0;
+    has_init_map_ = 0;
     
     private_nh_ = new ros::NodeHandle("~/local_planner");
     private_nh_->getParam("/DStarPlanner/map_res", map_res_); //map_res_ = .05;
     private_nh_->getParam("/DStarPlanner/grid_cols", cols_);
     private_nh_->getParam("/DStarPlanner/grid_rows", rows_);
+    private_nh_->getParam("/DStarPlanner/visualizer_frame", draw_frame_);
+    
+    //TODO: The map size is hardcoded. Change this in the future.
+    x_range_ = (cols_*map_res_);
+    y_range_ = (rows_*map_res_);
+    x_offset_ = -100;
+    y_offset_ = -100;
+
+    
+    lookahead_len_ = 2;
+    
     state_map_ = 0;
     
     control_system_ = new SimpleControlSystem(); //AnfisControlSystem();
@@ -37,10 +57,14 @@ DStarPlanner::~DStarPlanner(){
     }
 
     delete control_system_;
+
+    if(state_map_){
+      delete[] state_map_;
+    }
 }
 
 
-void DStarPlanner::initialize(std::string name){
+void DStarPlanner::initialize(){
     planner_thread_ = new boost::thread(&DStarPlanner::runPlanner, this);
 }
 
@@ -53,8 +77,7 @@ bool DStarPlanner::computeVelocityCommands(geometry_msgs::Twist &cmd_vel){
         }
     }
     
-    
-    cmd_vel.linear.y = 0; //?
+    cmd_vel.linear.y = 0;
     cmd_vel.linear.z = 0;
     cmd_vel.angular.x = 0;
     cmd_vel.angular.y = 0;
@@ -68,15 +91,15 @@ bool DStarPlanner::computeVelocityCommands(geometry_msgs::Twist &cmd_vel){
     float v_forward;
     float v_angular;
     
-    nav_msgs::Odometry pose;
-
-    if(!getROSPose(pose)){
-      ROS_INFO("Failed to get robot pose");
+    nav_msgs::Odometry odom;
+    
+    if(!getROSPose(odom)){
+      ROS_INFO("Failed to get robot odom");
     }
     
-    //ROS_INFO("D* %f %f   %f %f   %f %f   %f %f", pose.pose.position.x, pose.pose.position.y,  waypoints[0][0], waypoints[0][1], waypoints[1][0], waypoints[1][1], waypoints[2][0], waypoints[2][1]);
+    ROS_INFO("D* %f %f   %f %f   %f %f   %f %f", odom.pose.pose.position.x, odom.pose.pose.position.y,  waypoints[0][0], waypoints[0][1], waypoints[1][0], waypoints[1][1], waypoints[2][0], waypoints[2][1]);
     //ROS_INFO("D* computeVelocityCommands: computeVelocityCommand");
-    control_system_->computeVelocityCommand(waypoints, pose.pose, v_forward, v_angular);
+    control_system_->computeVelocityCommand(waypoints, odom.pose.pose, v_forward, v_angular);
     
     cmd_vel.linear.x = v_forward;
     cmd_vel.angular.z = v_angular;
@@ -86,7 +109,7 @@ bool DStarPlanner::computeVelocityCommands(geometry_msgs::Twist &cmd_vel){
 }
 
 //This actually queries the configure localization node and obtains a position estimate.
-int getROSPose(nav_msgs::Odometry &odom){
+int DStarPlanner::getROSPose(nav_msgs::Odometry &odom){
   std::lock_guard<std::mutex> lock(odom_mu_);
   odom = latest_odom_;
   return 1;
@@ -110,17 +133,8 @@ bool DStarPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped> &plan){
         }
     }
 
-    //make sure start and goal match
-    global_waypoints_[global_waypoints_.size()-1] = Eigen::Vector2f(plan[plan.size()-1].pose.position.x, plan[plan.size()-1].pose.position.y);
-    
-    //testing. Remove following lines when you actually want to run it for real
-    global_waypoints_.clear();
-    global_waypoints_.push_back(Eigen::Vector2f(plan[0].pose.position.x, plan[0].pose.position.y));
-    global_waypoints_.push_back(Eigen::Vector2f(plan[plan.size()-1].pose.position.x, plan[plan.size()-1].pose.position.y));
-    
-    ROS_INFO("D* Test LP Start point: %f %f", global_waypoints_[0][0], global_waypoints_[0][1]);
-    ROS_INFO("D* Test LP Goal point: %f %f", global_waypoints_[1][0], global_waypoints_[1][1]);
-    
+    //make sure the last point is actually the goal
+    global_waypoints_[global_waypoints_.size()-1] = Eigen::Vector2f(plan[plan.size()-1].pose.position.x, plan[plan.size()-1].pose.position.y);    
     
     ROS_INFO("D* num waypoints %lu", global_waypoints_.size());
     return true;
@@ -142,45 +156,74 @@ bool DStarPlanner::isGoalReached(){
 int DStarPlanner::isStateValid(float x, float y){
   //ROS_INFO("D* is state valid");
   StateData *temp = readStateMap(x, y);
-  return temp->occupancy < occupancy_threshold_;
+  return temp->occupancy < occ_threshold_;
 }
 
-void DStarPlanner::odometryCallback(const nav_msgs::Odometry &odom){
+void DStarPlanner::odometryCallback(const nav_msgs::Odometry::ConstPtr &odom){
   std::lock_guard<std::mutex> lock(odom_mu_);
-  latest_odom_ = odom;
+  latest_odom_ = *odom;
 }
 
+//TODO: Make it faster
 //This is going to be a real stupid inefficient function
+//Grid isn't too big so it won't be an issue, but this solution doesn't scale.
 //Just iterate through new_grid and look for differences
 //Between new_grid and the current grid.
-void DStarPlanner::updateEdgeCostsCallback(const std_msgs::Float32MultiArray &new_grid){
+//rospy_tutorials/Floats
+void DStarPlanner::updateEdgeCostsCallback(const std_msgs::Float32MultiArray::ConstPtr &new_grid){
     ROS_INFO("D* update edge costs callback");
     ros::WallTime start_time = ros::WallTime::now();
     ros::WallDuration exe_time;
-
+    std::vector<StateData> update_nodes;
+    
     if(!state_map_){
       ROS_INFO("D* Occ grid not yet initialized. Can't update edges in grid.");
       return;
     }
     
+    
+    if(!has_init_map_){
+      for(int i = 0; i < rows_; i++){
+	int offset = i*cols_;
+	for(int j = 0; j < cols_; j++){
+	  state_map_[offset+j].occupancy = new_grid->data[offset+j];
+	  state_map_[offset+j].x = j;
+	  state_map_[offset+j].y = i;
+	  
+	  if(state_map_[offset+j].occupancy > occ_threshold_){
+	    drawObstacle(&state_map_[offset+j], 0);
+	  }
+	}
+      }
+      
+      has_init_map_ = 1;
+      return;
+    }
+    
     StateData temp_state_data;
+    int count_obs = 0;
     for(int i = 0; i < rows_; i++){
       int offset = i*cols_;
       for(int j = 0; j < cols_; j++){
-        if(fabs(new_grid[offset+j] - state_map[offset+j].occupancy) > EPSILON){
+        if(fabs(new_grid->data[offset+j] - state_map_[offset+j].occupancy) > EPSILON){
           temp_state_data.x = j;
           temp_state_data.y = i;
-          temp_state_data.occupancy = new_grid[offset+j];
-          
+          temp_state_data.occupancy = new_grid->data[offset+j];
+	  
           update_nodes.push_back(temp_state_data);
-          drawObstacle(&state_map_[offset+j], 0);
+	  
+	  if(temp_state_data.occupancy > occ_threshold_){
+	    drawObstacle(&temp_state_data, 0);
+	    count_obs++;
+	  }
         }
       }
     }
     
+    ROS_INFO("COUNT_OBS %d", count_obs);
     
     
-    ROS_INFO("D* updateEdge: Done with detecting new states to update. Entering critical section now");
+    //ROS_INFO("D* updateEdge: Done with detecting new states to update. Entering critical section now");
     
     //CRITICAL SECTION
     {
@@ -189,8 +232,6 @@ void DStarPlanner::updateEdgeCostsCallback(const std_msgs::Float32MultiArray &ne
           update_nodes_.push_back(update_nodes[i]);
         }
     }
-    
-    has_init_map_ = 1;
     
     //exe_time = ros::WallTime::now() - start_time;
     //ROS_INFO("D* updateEdge: exiting critical section %u %u", exe_time.sec, exe_time.nsec);
@@ -203,9 +244,13 @@ void DStarPlanner::updateEdgeCostsCallback(const std_msgs::Float32MultiArray &ne
 Eigen::Vector2f DStarPlanner::getCurrentPose(){
     Eigen::Vector2f current_pose;
     geometry_msgs::PoseStamped pose;
-    costmap_ros_->getRobotPose(pose);
-    current_pose[0] = pose.pose.position.x;
-    current_pose[1] = pose.pose.position.y;
+    
+    nav_msgs::Odometry odom;
+    getROSPose(odom);
+    
+    current_pose[0] = odom.pose.pose.position.x;
+    current_pose[1] = odom.pose.pose.position.y;
+    
     return current_pose;
 }
 
@@ -234,24 +279,11 @@ int DStarPlanner::initPlanner(Eigen::Vector2f start, Eigen::Vector2f goal){
 
     init_curr_wp_ = 1; //this is required to set curr_wp_ to origin for the control system when the robot is at the very start of the path plan
     
-    //TODO: Think about this a bit more and talk to Aniketh about it.
-    x_range_ = (cols_*map_res_);
-    y_range_ = (rows_*map_res_);
-    
-    x_offset_ = 0;
-    y_offset_ = 0;
-    
-    if(state_map_){
-        delete[] state_map_;
-    }
-    state_map_ = new StateData[cols_*rows_];
-    
     unsigned offset;
     for(unsigned i = 0; i < rows_; i++){
         offset = cols_*i;
         for(unsigned j = 0; j < cols_; j++){
             state_map_[offset+j].tag = NEW;
-            
             state_map_[offset+j].min_cost = -1;
             state_map_[offset+j].curr_cost = 1;
             state_map_[offset+j].b_ptr = 0;
@@ -262,9 +294,6 @@ int DStarPlanner::initPlanner(Eigen::Vector2f start, Eigen::Vector2f goal){
         }
     }
     
-    //This is going to get a local obstacle and terrain point clouds.
-    //And then build a local occ grid
-    //initOccupancyGrid(start, goal);
     
     if(!isStateValid(start[0], start[1])){
       ROS_INFO("D* Starting sTATE IS invalid %f %f", start[0], start[1]);
@@ -284,8 +313,6 @@ int DStarPlanner::initPlanner(Eigen::Vector2f start, Eigen::Vector2f goal){
     float k_min;
     StateData* state_xc = readStateMap(start[0], start[1]);
     drawGoal(state_xc);
-
-    //pressEnter();
     
     do{
         k_min = processState(0);
@@ -295,7 +322,7 @@ int DStarPlanner::initPlanner(Eigen::Vector2f start, Eigen::Vector2f goal){
 }
 
 int DStarPlanner::replan(StateData* robot_state){
-    ROS_INFO("D* replan");
+  //ROS_INFO("D* replan");
     float k_min;
 
     do{
@@ -317,14 +344,14 @@ void DStarPlanner::runPlanner(){
     ros::Rate loop_rate(10);
     
     control_system_->initialize();
-    
+
     //This is still useful just for the getRobotPose function
     private_nh_->getParam("/DStarPlanner/goal_tol", goal_tol_);
-    //private_nh_->getParam("/LocalMap/occupancy_threshold", occupancy_threshold_);
+    private_nh_->getParam("/DStarPlanner/occ_threshold", occ_threshold_);
     
     std::string odom_topic;
-    private_nh_->getParam("/DStarPlanner/odometry_topic", odometry_topic);
-    odom_callback_ = private_nh_->subscribe<nav_msgs::Odometry>(odometry_topic.c_str(),
+    private_nh_->getParam("/DStarPlanner/odometry_topic", odom_topic);
+    odom_callback_ = private_nh_->subscribe<nav_msgs::Odometry>(odom_topic.c_str(),
                                                                 100,
                                                                 &DStarPlanner::odometryCallback,
                                                                 this);
@@ -336,14 +363,18 @@ void DStarPlanner::runPlanner(){
                                                                            &DStarPlanner::updateEdgeCostsCallback,
                                                                            this);
     
+    if(state_map_){
+      delete[] state_map_;
+    }
+    state_map_ = new StateData[cols_*rows_];
     
     
+    ROS_INFO("D* waiting for initial map.");
     has_init_map_ = 0;
     do{
       ros::spinOnce();
       loop_rate.sleep();
     } while(!has_init_map_);
-    init_sub.shutdown();
     ROS_INFO("D* Got initial map");
     
     
@@ -387,8 +418,8 @@ void DStarPlanner::runPlanner(){
         temp_start = readStateMap(X_pos[0], X_pos[1]);
         temp_goal = readStateMap(global_waypoints_[idx+1][0], global_waypoints_[idx+1][1]);
         
-        //drawGoal(temp_start);
-        //drawGoal(temp_goal);
+        drawGoal(temp_start);
+        drawGoal(temp_goal);
         
         X_state = temp_start;
         
@@ -396,7 +427,7 @@ void DStarPlanner::runPlanner(){
         actual_path.push_back(X_state);
 
         ROS_INFO("D* starting online part");
-        
+	
         do{ //This scans for new obstacles, replans, and follows the backptr
           stepPlanner(X_state, X_pos);
           loop_rate.sleep();
@@ -421,7 +452,7 @@ void DStarPlanner::runPlanner(){
 }
 
 int DStarPlanner::stepPlanner(StateData*& robot_state, Eigen::Vector2f &X_robot){
-    ROS_INFO("D* stepPlanner");
+  //ROS_INFO("D* stepPlanner");
     //This is going to scan the environment and update the node occupancy/graph edge costs
     //The following is going to be slow as hell. But this is just a demo.
     //Just go over all the nodes in state_map_
@@ -436,7 +467,7 @@ int DStarPlanner::stepPlanner(StateData*& robot_state, Eigen::Vector2f &X_robot)
     //spinner.spin();
     
     
-    ROS_INFO("D* stepPlanner: Entering critical section to update edge costs");
+    //ROS_INFO("D* stepPlanner: Entering critical section to update edge costs");
     std::vector<StateData> update_nodes; //this threads local copy
     {
         //Critical section for recieving which nodes in the graph are updated
@@ -446,7 +477,7 @@ int DStarPlanner::stepPlanner(StateData*& robot_state, Eigen::Vector2f &X_robot)
         }
         update_nodes_.clear();
     }
-    ROS_INFO("D* stepPlanner: exiting critical section");
+    //ROS_INFO("D* stepPlanner: exiting critical section");
     
     ROS_INFO("D* Num Cells To be Processed: %lu", update_nodes.size());
     std::vector<StateData*> neighbors;
@@ -461,7 +492,7 @@ int DStarPlanner::stepPlanner(StateData*& robot_state, Eigen::Vector2f &X_robot)
         getNeighbors(neighbors, &state_map_[m_idx], 1);
         
         state_map_[m_idx].occupancy = update_nodes[i].occupancy;
-                
+	
         if(state_map_[m_idx].tag == CLOSED){
           insertState(&state_map_[m_idx], state_map_[m_idx].curr_cost);
         }
@@ -483,50 +514,49 @@ int DStarPlanner::stepPlanner(StateData*& robot_state, Eigen::Vector2f &X_robot)
 }
 
 void DStarPlanner::followBackpointer(StateData*& robot_state){
-    static Eigen::Vector2f curr_wp;
+    static Eigen::Vector2f prev_wp;
     
-    ROS_INFO("D* follow back pointer");
+    //ROS_INFO("D* follow back pointer");
     unsigned x_actual; //map physical location to local map index
     unsigned y_actual;
     Eigen::Vector2f current_pose = getCurrentPose();
     getMapIdx(current_pose, x_actual, y_actual);
     drawRobotPos(x_actual, y_actual);
     
-    ROS_INFO("D* followBackPointer: setting waypoints for control system");
+    //ROS_INFO("D* followBackPointer: setting waypoints for control system");
     //Critical Section. Sets local waypoints for control system to use as lookahead.
     //Need to guard local_waypoints which is being read in the computeVelocityCommands function/move_base thread.
     {
         std::lock_guard<std::mutex> lock(wp_mu_);
         StateData* temp_state = robot_state;
-        
+	
         local_waypoints_.clear();
         for(unsigned i = 0; i < lookahead_len_; i++){
-          Eigen::Vector2f temp_vec = getRealPosition(temp_state->x, temp_state->y);
-          temp_state = temp_state->b_ptr; 
-          if(temp_state == NULL){
-            break;
+	  if(temp_state->b_ptr != NULL){
+	    temp_state = temp_state->b_ptr;
           }
+          Eigen::Vector2f temp_vec = getRealPosition(temp_state->x, temp_state->y);
           local_waypoints_.push_back(temp_vec); //don't include the current point. Set curr point to prev target point
         }
         
         if(init_curr_wp_){
           init_curr_wp_ = 0;
-          curr_wp = current_pose;
+          prev_wp = current_pose;
         }
         
-        local_waypoints_.insert(local_waypoints_.begin(), curr_wp);
+        local_waypoints_.insert(local_waypoints_.begin(), prev_wp);
     }
     
     
     float dx, dy, dist, best_dist;
     unsigned best_idx;
     
-    dx = local_waypoints_[1][0] - current_pose[0];
-    dy = local_waypoints_[1][1] - current_pose[1];
+    dx = local_waypoints_[0][0] - current_pose[0];
+    dy = local_waypoints_[0][1] - current_pose[1];
     best_dist = sqrtf(dx*dx + dy*dy);
-    best_idx = 1;
+    best_idx = 0;
     
-    for(unsigned i = 2; i < local_waypoints_.size(); i++){
+    for(unsigned i = 1; i < local_waypoints_.size(); i++){
       dx = local_waypoints_[i][0] - current_pose[0];
       dy = local_waypoints_[i][1] - current_pose[1];
       dist = sqrtf(dx*dx + dy*dy);
@@ -538,11 +568,11 @@ void DStarPlanner::followBackpointer(StateData*& robot_state){
     }
 
     //Hopefully my logic is correct here.
-    if(best_idx != 1){ //this means a closer target is available. set curr_wp[k+1] = target_wp[k], target_wp[k+1] = future_wp[k], future_wp[k] = next waypoint. 
-      curr_wp = local_waypoints_[1];
+    if(best_idx != 0){ //this means a closer target is available. set curr_wp[k+1] = target_wp[k], target_wp[k+1] = future_wp[k], future_wp[k] = next waypoint. 
+      prev_wp = local_waypoints_[1];
       
-      ROS_INFO("D* followBackPointer: Back Pointer = Advanced down the path");
-      for(unsigned i = 0; i < best_idx-1; i++){
+      //ROS_INFO("D* followBackPointer: Back Pointer = Advanced down the path");
+      for(unsigned i = 0; i < best_idx; i++){
         robot_state = robot_state->b_ptr;
       }
     }    
@@ -582,7 +612,8 @@ void DStarPlanner::getNeighbors(std::vector<StateData*> &neighbors, StateData* X
 
 float DStarPlanner::processState(int replan){
     if(open_list_.empty()){
-        return -1;
+      ROS_INFO("open_list is empty");
+      return -1;
     }
     
     StateData *X = open_list_[0];
@@ -593,7 +624,7 @@ float DStarPlanner::processState(int replan){
     //ROS_INFO("D* Current x y   %u %u", X->x, X->y);
     std::vector<StateData*> neighbors;
     getNeighbors(neighbors, X, replan);
-
+    
     //ROS_INFO("D* Num neighbors %lu", neighbors.size());
     StateData *Y;
     
@@ -602,7 +633,7 @@ float DStarPlanner::processState(int replan){
     //Raise
     // k_old < X->curr_cost
     if(k_old < X->curr_cost){
-      //drawStateType(X, RAISE);
+        drawStateType(X, RAISE);
         for(unsigned i = 0; i < neighbors.size(); i++){
             Y = neighbors[i];
             if(Y->tag != NEW &&
@@ -618,7 +649,7 @@ float DStarPlanner::processState(int replan){
     //Lower bluh
     // k_old == X->curr_cost but for floats.
     if(fabs(k_old - X->curr_cost) < EPSILON){
-      //drawStateType(X, LOWER);        
+        drawStateType(X, LOWER);        
         for(unsigned i = 0; i < neighbors.size(); i++){
             Y = neighbors[i];
             //ROS_INFO("D* Neighbor %u %u", Y->x, Y->y);
@@ -632,7 +663,7 @@ float DStarPlanner::processState(int replan){
 
     }
     else{ //Nothing?
-      //drawStateType(X, NORMAL);
+        drawStateType(X, NORMAL);
         for(unsigned i = 0; i < neighbors.size(); i++){
             Y = neighbors[i];
             if(Y->tag == NEW || (Y->b_ptr == X && Y->curr_cost != (X->curr_cost + getEdgeCost(X, Y)))){
@@ -757,7 +788,6 @@ Eigen::Vector2f DStarPlanner::getRealPosition(unsigned x, unsigned y){
     float y_scale = y_range_ / rows_;
     Eigen::Vector2f X;
     
-    
     X[0] = ((float)x*x_scale) + x_offset_;// + (x_scale*.5);
     X[1] = ((float)y*y_scale) + y_offset_;// + (y_scale*.5);
     return X;
@@ -779,11 +809,12 @@ void DStarPlanner::initWindow(){
 }
 
 void DStarPlanner::drawStateType(StateData *state, STATE_TYPE s_type){
+    static unsigned counter = 0;
     unsigned color;
     float scalar; //from 1 to zero
-
+    
     visualization_msgs::Marker rect;
-    rect.header.frame_id = "map";
+    rect.header.frame_id = draw_frame_.c_str();
     rect.header.stamp = ros::Time::now();
     rect.ns = "dstar_state";
     rect.action = visualization_msgs::Marker::ADD;
@@ -791,44 +822,48 @@ void DStarPlanner::drawStateType(StateData *state, STATE_TYPE s_type){
     rect.pose.orientation.x = 0.0;
     rect.pose.orientation.y = 0.0;
     rect.pose.orientation.z = 0.0;
-    rect.id = (state->y*cols_) + state->x;
+    rect.id = counter++; //(state->y*cols_) + state->x;
     rect.type = visualization_msgs::Marker::CUBE;
     rect.scale.x = map_res_;
     rect.scale.y = map_res_;
-    rect.scale.z = map_res_;//(map_res_ * state->curr_cost) + .01;
+    rect.scale.z = map_res_;
     
     rect.color.r = 0.0;
     rect.color.g = 0.0;
     rect.color.b = 0.0;
     
-    scalar = std::min(1.0f, std::max(0.0f, (float)(.1+ .9*state->occupancy)));
+    scalar = 1.0f; //std::min(1.0f, std::max(0.0f, (float)(.5 + .5*state->occupancy)));
     
     switch(s_type){
     case RAISE:
       rect.color.r = scalar;
+      rect.pose.position.z = -1;
       break;
     case LOWER:
       rect.color.b = scalar;
+      rect.pose.position.z = -.75;
       break;
     case NORMAL:
       rect.color.g = scalar;
+      rect.pose.position.z = -.5;
+      break;
+    default:
+      ROS_INFO("Please stop what you're doing and debug this immediately");
       break;
     }
     
-    Eigen::Vector2f goal = getRealPosition(state->x, state->y);
+    Eigen::Vector2f pos = getRealPosition(state->x, state->y);
+    //ROS_INFO("pos %f %f    %u %u", pos[0], pos[1], state->x, state->y);
     
-    rect.color.a = .5;
-    rect.pose.position.x = goal[0];
-    rect.pose.position.y = goal[1];
-    rect.pose.position.z = 0;
+    rect.color.a = 1.0;
+    rect.pose.position.x = pos[0];
+    rect.pose.position.y = pos[1];
     
     dstar_visual_pub_.publish(rect);
     
     //ROS_INFO("D* drawStateType %u   %u %u", rect.id, state->x, state->y);
-    
     //drawStateTag(state);
-    //drawStateBPtr(state);
-    
+    drawStateBPtr(state);
 }
 
 void DStarPlanner::drawStateTag(StateData* state){
@@ -857,7 +892,7 @@ void DStarPlanner::drawObstacle(StateData *state, int clear){
   Eigen::Vector2f goal = getRealPosition(state->x, state->y);
   
   visualization_msgs::Marker rect;
-  rect.header.frame_id = "map";
+  rect.header.frame_id = draw_frame_.c_str();
   rect.header.stamp = ros::Time::now();
   rect.ns = "dstar_obs";
   rect.action = visualization_msgs::Marker::ADD;
@@ -882,7 +917,7 @@ void DStarPlanner::drawObstacle(StateData *state, int clear){
   rect.color.a = 0.5;
   rect.pose.position.x = goal[0];
   rect.pose.position.y = goal[1];
-  rect.pose.position.z = 0;
+  rect.pose.position.z = 1;
   
   dstar_visual_pub_.publish(rect);
 }
@@ -898,20 +933,20 @@ void DStarPlanner::drawStateBPtr(StateData *state){
   Eigen::Vector2f end = getRealPosition(state->b_ptr->x, state->b_ptr->y);
 
   geometry_msgs::Point start_pt;
-  start_pt.x = start[0] + map_res_*.5f;
-  start_pt.y = start[1] + map_res_*.5f;
-  start_pt.z = .1f;
+  start_pt.x = start[0]; // + map_res_*.5f;
+  start_pt.y = start[1];
+  start_pt.z = 1.0f;
 
   geometry_msgs::Point end_pt;
-  end_pt.x = end[0] + map_res_*.5f;
-  end_pt.y = end[1] + map_res_*.5f;
-  end_pt.z = .1f;
+  end_pt.x = end[0];
+  end_pt.y = end[1];
+  end_pt.z = 1.0f;
   
   pts.push_back(start_pt);
   pts.push_back(end_pt);
   
   visualization_msgs::Marker point_list;
-  point_list.header.frame_id = "map";
+  point_list.header.frame_id = draw_frame_.c_str();
   point_list.header.stamp = ros::Time::now();
   point_list.ns = "dstar_bptr";
   point_list.action = visualization_msgs::Marker::ADD;
@@ -920,7 +955,7 @@ void DStarPlanner::drawStateBPtr(StateData *state){
   point_list.pose.orientation.y = 0.0;
   point_list.pose.orientation.z = 0.0;
   point_list.id = (state->y*cols_) + state->x;
-  point_list.type = visualization_msgs::Marker::POINTS;
+  point_list.type = visualization_msgs::Marker::LINE_STRIP;
   point_list.scale.x = 0.1; //line width
   point_list.scale.y = 0.1; //line width
   point_list.color.r = 1.0;
@@ -936,7 +971,7 @@ void DStarPlanner::drawRobotPos(unsigned x, unsigned y){
   Eigen::Vector2f goal = getRealPosition(x, y);
   
   visualization_msgs::Marker rect;
-  rect.header.frame_id = "map";
+  rect.header.frame_id = draw_frame_.c_str();
   rect.header.stamp = ros::Time::now();
   rect.ns = "dstar_robot_pos";
   rect.action = visualization_msgs::Marker::ADD;
@@ -973,7 +1008,7 @@ void DStarPlanner::drawGoal(StateData *state){
   Eigen::Vector2f goal = getRealPosition(state->x, state->y);
   
   visualization_msgs::Marker rect;
-  rect.header.frame_id = "map";
+  rect.header.frame_id = draw_frame_.c_str();
   rect.header.stamp = ros::Time::now();
   rect.ns = "dstar_goal";
   rect.action = visualization_msgs::Marker::ADD;
@@ -987,9 +1022,9 @@ void DStarPlanner::drawGoal(StateData *state){
   rect.scale.y = .5;
   rect.scale.z = .5;
   
-  rect.color.r = 1.0;
+  rect.color.r = 0.0;
   rect.color.g = 0.0;
-  rect.color.b = 0.0;
+  rect.color.b = 1.0;
   rect.color.a = 1.0;
   rect.pose.position.x = goal[0];
   rect.pose.position.y = goal[1];
@@ -1022,7 +1057,7 @@ void DStarPlanner::drawPath(StateData *state){
     }
     
     visualization_msgs::Marker line_list;
-    line_list.header.frame_id = "map";
+    line_list.header.frame_id = draw_frame_.c_str();
     line_list.header.stamp = ros::Time::now();
     line_list.ns = "dstar_line";
     line_list.action = visualization_msgs::Marker::ADD;

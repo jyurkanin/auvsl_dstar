@@ -5,10 +5,11 @@
 
 #include <vector>
 #include <mutex>
+#include <string>
 
 // msgs
 #include <std_msgs/Float32MultiArray.h>
-#include <navigation_msgs/Odometry.h>
+#include <nav_msgs/Odometry.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <visualization_msgs/Marker.h>
@@ -24,6 +25,8 @@
 
 #include <boost/thread/thread.hpp>
 #include <rosgraph_msgs/Clock.h>
+
+#include <fstream>
 
 /*
  * Implementation for this algorithm is from
@@ -60,16 +63,15 @@ struct StateData{
 
 typedef struct StateData StateData;
 
-class DStarPlanner : public nav_core::BaseLocalPlanner{
+class DStarPlanner {
 public:
     DStarPlanner();
     ~DStarPlanner();
 
-    //base_local_planner virtual function overrides
-    bool computeVelocityCommands(geometry_msgs::Twist &cmd_vel) override;
-    void initialize(std::string name) override;
-    bool isGoalReached() override;
-    bool setPlan(const std::vector<geometry_msgs::PoseStamped> &plan) override;
+    bool computeVelocityCommands(geometry_msgs::Twist &cmd_vel);
+    void initialize();
+    bool isGoalReached();
+    bool setPlan(const std::vector<geometry_msgs::PoseStamped> &plan);
 
     //ROS related extra functions
     void followBackpointer(StateData*& robot_state);
@@ -80,8 +82,8 @@ public:
     int stepPlanner(StateData*& robot_state, Eigen::Vector2f &robot_pos);
     int replan(StateData* robot_state);
 
-    void updateEdgeCostsCallback(const std_msgs::Float32MultiArray &new_edges);
-    void odometryCallback(const nav_msgs::Odometry &odom);
+    void updateEdgeCostsCallback(const std_msgs::Float32MultiArray::ConstPtr &new_edges);
+    void odometryCallback(const nav_msgs::Odometry::ConstPtr &odom);
   //void initOccupancyGridCallback(const std_msgs::Float32MultiArray &initial_grid);
   
     float getEdgeCost(StateData* X, StateData* Y);    //c(X)
@@ -111,7 +113,7 @@ public:
     Eigen::Vector2f getRealPosition(unsigned x, unsigned y);
     Eigen::Vector2f getCurrentPose();
     int getROSPose(nav_msgs::Odometry &odom);
-  
+    
     //Costmap related functions
     int isStateValid(float x, float y);
     
@@ -122,11 +124,13 @@ private:
     float y_range_;
     float y_offset_;
     
-    float occupancy_threshold_;
+    float occ_threshold_;
     float map_res_;
     
-    unsigned cols_;
-    unsigned rows_;
+    int cols_;
+    int rows_;
+    
+    std::string draw_frame_;
     
     StateData *state_map_; //states are 8 connected
     //SimpleTerrainMap *terrain_map_;

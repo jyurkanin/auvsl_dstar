@@ -12,12 +12,11 @@
   -->
   
   <include file="$(find uuv_gazebo_worlds)/launch/tuberexrov.launch"/>
-  <node name="obstacle_map_py" pkg="auvsl_dstar" type="py_image_coordinate-aniketh.py" output="screen"/>
+  <node name="obstacle_map_py" pkg="uuv_gazebo_worlds" type="py_image_coordinate-aniketh.py" output="log"/>
   
-  <!--
-  <rosparam file="$(find auvsl_dstar)/config/jackal_gazebo_pid.yaml" command="load"/> 
+  
   <rosparam file="$(find auvsl_dstar)/config/params.yaml"/>
   <node name="auvsl_dstar" pkg="auvsl_dstar" type="auvsl_dstar_node" output="screen"/>
-  -->
+  
 
 </launch>
